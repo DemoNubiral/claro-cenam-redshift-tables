@@ -1,0 +1,152 @@
+# This is the workflow file that will be used to manage redshift.
+
+name: Redshift-Workflow
+
+on:
+  push:
+    branches:
+      - main
+      #- dev
+    paths:
+      - 'oid/**'
+      - 'dwh/**'
+      - 'bigdata/**'
+      - 'industrializacion/**'
+
+  workflow_dispatch:
+  
+concurrency:
+  group: Redshift-Workflow
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+  issues: write
+  pull-requests: write
+
+env:
+  AWS_REGION              : ${{ vars.AWS_REGION }}
+  AWS_ROLE                : ${{ secrets.AWS_ROLE }}
+  INSTANCE_ID             : ${{ vars.INSTANCE_ID }}
+  EC2_SSH_KEY             : ${{ secrets.EC2_SSH_KEY }}
+
+jobs:
+  manage-redshift:
+    environment: prod
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code with full history
+        uses: actions/checkout@v4.1.7
+        with:
+          fetch-depth: 2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHub-OIDC-TERRAFORM
+      
+      - name: Changed files
+        id: changed-create-files
+        uses: tj-actions/changed-files@v45
+        with:
+          files: |
+            ./oid/**/**/*.env
+            ./dwh/**/*.env
+            ./bigdata/**/*.env
+            ./industrializacion/**/*.env
+
+      - name: Get info data
+        id: get-info-data
+        if: ${{ steps.changed-create-files.outputs.all_changed_files!= '' }}
+        env:
+            FILES: ${{ steps.changed-create-files.outputs.all_changed_files }}
+        run: |
+          mkdir -p redshift-table-process
+          for file in ${{ steps.changed-create-files.outputs.all_changed_files }}; do
+            cp -r $file redshift-table-process
+          done
+          ls -la ./redshift-table-process/
+  
+      - name: Start Instance
+        id: start-instance
+        run: |
+          echo -e "${{INSTANCE_ID}}...\n"
+          echo "Checking instance state"
+          INSTANCE_STATE=$(aws ec2 describe-instances --instance-ids ${{INSTANCE_ID}} --query 'Reservations[*].Instances[*].State.Name' --output text --region ${{AWS_REGION}})
+          if [ "$INSTANCE_STATE" = "stopped" ]; then
+            aws ec2 start-instances --instance-ids ${{INSTANCE_ID}} --region ${{AWS_REGION}}
+            echo -e "\n----- Start command sended to ${{INSTANCE_ID}} -----"
+            echo "Waiting for starting instance"
+            while INSTANCE_STATE=$(aws ec2 describe-instances --instance-ids ${{INSTANCE_ID}} --query 'Reservations[*].Instances[*].State.Name' --output text --region ${{AWS_REGION}}); test "$INSTANCE_STATE" = "pending"; do sleep 2; echo -n '.'; done
+          else
+            echo -e "\n-----*******************************-----"
+            echo -e "-----EC2 Instance is already started-----"
+            echo -e "-----         Stop it first         -----"
+            echo -e "-----*******************************-----\n"
+          fi
+          echo -e "GETTING PUBLIC IP..."
+          PUBLIC_IP=$(aws ec2 describe-instances --instance-ids ${{INSTANCE_ID}} --query "Reservations[*].Instances[*].PublicIpAddress" --output text --region ${{AWS_REGION}})
+          echo -e "${{INSTANCE_STATE}}...\n"
+          echo "INSTANCE_STATE=$INSTANCE_STATE" >> $GITHUB_ENV
+          echo "PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_ENV
+  
+      - name: Setup SSH Key
+        id: setup-ssh-key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{PUBLIC_IP}} >> ~/.ssh/known_hosts
+          
+      - name: Upload Script to EC2
+        run: scp -i ~/.ssh/id_rsa ./code-create-tables/code-create-tables.py ec2-user@${{PUBLIC_IP}}:/home/ec2-user/
+
+      - name: Validate existing script on EC2
+        run: ssh -i ~/.ssh/id_rsa ec2-user@${{PUBLIC_IP}} 'if [[ -e /home/ec2-user/code-create-tables.py ]]; then echo -e "SCRIPT EXISTS" else exit 1'
+        continue-on-error: false
+      
+      - name: Execute Script on EC2
+        id: ejecutar-script
+        run: |
+          OUTPUT=$(ssh -i ~/.ssh/id_rsa ec2-user@${{PUBLIC_IP}} 'python3 /home/ec2-user/code-create-tables.py' 2>&1)
+          EXIT_CODE=$?
+
+          echo "Salida del script:"
+          echo "${OUTPUT}"
+
+          echo "Código de salida: ${EXIT_CODE}"
+
+          if [ ${EXIT_CODE} -ne 0 ]; then
+            echo "❌ Error en el script Python"
+            exit 1
+          fi
+      
+      - name: Stop Instance
+        id: stop-instance
+        run: |
+          echo -e "${{INSTANCE_ID}}...\n"
+          aws ec2 stop-instances --instance-ids ${{INSTANCE_ID}} --region ${{AWS_REGION}}
+
+          echo -e "\n----- Stop command sended to ${{INSTANCE_ID}} -----"
+          
+          echo "Waiting for stopping instance"
+          while INSTANCE_STATE=$(aws ec2 describe-instances --instance-ids ${{INSTANCE_ID}} --query 'Reservations[*].Instances[*].State.Name' --output text --region ${{AWS_REGION}}); test "${INSTANCE_STATE}" = "running"; do sleep 2; echo -n '.'; done
+          echo -e "${INSTANCE_STATE}...\n"
+
+          counter_var=0
+          while INSTANCE_STATE=$(aws ec2 describe-instances --instance-ids ${{INSTANCE_ID}} --query 'Reservations[*].Instances[*].State.Name' --output text --region ${{AWS_REGION}}); test "${INSTANCE_STATE}" = "stopping"; do 
+            sleep 2
+            echo -n '.'
+            ((counter_var=counter_var+1)) 
+            if [ "$counter_var" -gt 10 ]; then
+              echo -e "\n-----******************************-----"
+              echo -e "-----EC2 Instance is NOT responding-----"
+              echo -e "-----        Breaking cycle        -----"
+              echo -e "-----******************************-----\n"
+              break
+            fi
+          done
+          echo -e "${INSTANCE_STATE}...\n"

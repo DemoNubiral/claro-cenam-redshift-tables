@@ -101,17 +101,27 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{PUBLIC_IP}} >> ~/.ssh/known_hosts
           
+          - name: Compress files
+          id: compress-files
+          run: zip -r files.zip oid dwh bigdata industrializacion code-create-tables
+  
       - name: Upload Script to EC2
-        run: scp -i ~/.ssh/id_rsa ./code-create-tables/code-create-tables.py ec2-user@${{PUBLIC_IP}}:/home/ec2-user/
+        id: upload-script
+        run: scp -i ~/.ssh/id_rsa files.zip ec2-user@${{PUBLIC_IP}}:/home/ec2-user/
 
-      - name: Validate existing script on EC2
-        run: ssh -i ~/.ssh/id_rsa ec2-user@${{PUBLIC_IP}} 'if [[ -e /home/ec2-user/code-create-tables.py ]]; then echo -e "SCRIPT EXISTS" else exit 1'
+      - name: Validate script on EC2
+        id: validate-script
+        run: ssh -i ~/.ssh/id_rsa ec2-user@${{PUBLIC_IP}} 'if [[ -e /home/ec2-user/files.zip ]]; then echo -e "SCRIPT EXISTS" else exit 1'
         continue-on-error: false
       
-      - name: Execute Script on EC2
-        id: ejecutar-script
+      - name: Decompress and Execute Script
+        id: descomprimir-y-ejecutar-script
         run: |
-          OUTPUT=$(ssh -i ~/.ssh/id_rsa ec2-user@${{PUBLIC_IP}} 'python3 /home/ec2-user/code-create-tables.py' 2>&1)
+          OUTPUT=$(ssh -i ~/.ssh/id_rsa ec2-user@${{PUBLIC_IP}} << 'EOF'
+          unzip files.zip
+          python3 /home/ec2-user/code-create-tables/code-create-tables.py 2>&1
+          EOF
+          )
           EXIT_CODE=$?
 
           echo "Salida del script:"
@@ -122,6 +132,8 @@ jobs:
           if [ ${EXIT_CODE} -ne 0 ]; then
             echo "❌ Error en el script Python"
             exit 1
+          else
+            echo "El script se ejecutó con éxito ✅"
           fi
       
       - name: Stop Instance

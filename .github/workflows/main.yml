@@ -101,13 +101,14 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{PUBLIC_IP}} >> ~/.ssh/known_hosts
           
-          - name: Compress files
-          id: compress-files
-          run: zip -r files.zip oid dwh bigdata industrializacion code-create-tables
+      - name: Compress files
+        id: compress-files
+        run: zip -r files.zip oid dwh bigdata industrializacion code-create-tables
   
       - name: Upload Script to EC2
         id: upload-script
         run: scp -i ~/.ssh/id_rsa files.zip ec2-user@${{PUBLIC_IP}}:/home/ec2-user/
+        continue-on-error: false
 
       - name: Validate script on EC2
         id: validate-script
@@ -135,6 +136,12 @@ jobs:
           else
             echo "El script se ejecutó con éxito ✅"
           fi
+        continue-on-error: false
+      
+      - name: Delete files on EC2
+        id: delete-files
+        run: ssh -i ~/.ssh/id_rsa ec2-user@${{PUBLIC_IP}} 'sudo rm -fr *'
+        continue-on-error: false
       
       - name: Stop Instance
         id: stop-instance

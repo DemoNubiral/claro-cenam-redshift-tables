@@ -30,6 +30,12 @@ env:
   AWS_ROLE                : ${{ secrets.AWS_ROLE }}
   INSTANCE_ID             : ${{ vars.INSTANCE_ID }}
   EC2_SSH_KEY             : ${{ secrets.EC2_SSH_KEY }}
+  DBNAME                  : ${{ secrets.REDSHIFT_DB }}
+  USER                    : ${{ secrets.REDSHIFT_USER }}
+  PASSWORD                : ${{ secrets.REDSHIFT_PASSWORD }}
+  HOST                    : ${{ secrets.REDSHIFT_HOST }}
+  PORT                    : ${{ secrets.REDSHIFT_PORT }}
+  WORKGROUP_NAME          : ${{ secrets.WORKGROUP_NAME }}
 
 jobs:
   manage-redshift:
@@ -100,10 +106,25 @@ jobs:
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{PUBLIC_IP}} >> ~/.ssh/known_hosts
-          
+      
+      - name: Create environments
+        id: create-environment
+        run: |
+          mkdir environment-variable
+          cd environment-variable
+          ENV_FILE="environment.env"   
+          cat <<EOL > $ENV_FILE
+          REDSHIFT_DB=${{ env.REDSHIFT_DB }}
+          REDSHIFT_USER=${{ env.REDSHIFT_USER }}
+          REDSHIFT_PASSWORD=${{ env.REDSHIFT_PASSWORD }}
+          REDSHIFT_HOST=${{ env.REDSHIFT_HOST }}
+          REDSHIFT_PORT=${{ env.REDSHIFT_PORT }}
+          WORKGROUP_NAME=${{ env.WORKGROUP_NAME }}
+          EOL
+
       - name: Compress files
         id: compress-files
-        run: zip -r files.zip oid dwh bigdata industrializacion code-create-tables
+        run: zip -r files.zip redshift-table-process environment-variable code-create-tables
   
       - name: Upload Script to EC2
         id: upload-script

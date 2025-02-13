@@ -36,6 +36,7 @@ env:
   HOST                    : ${{ secrets.REDSHIFT_HOST }}
   PORT                    : ${{ secrets.REDSHIFT_PORT }}
   WORKGROUP_NAME          : ${{ secrets.WORKGROUP_NAME }}
+  BUCKET_NAME             : ${{ vars.BUCKET_NAME }}
 
 jobs:
   manage-redshift:
@@ -114,6 +115,7 @@ jobs:
           cd environment-variable
           ENV_FILE="environment.env"   
           cat <<EOL > $ENV_FILE
+          BUCKET_NAME=${{ vars.BUCKET_NAME }}
           REDSHIFT_DB=${{ env.REDSHIFT_DB }}
           REDSHIFT_USER=${{ env.REDSHIFT_USER }}
           REDSHIFT_PASSWORD=${{ env.REDSHIFT_PASSWORD }}

@@ -148,25 +148,11 @@ jobs:
       - name: Decompress and Execute Script
         id: descomprimir-y-ejecutar-script
         run: |
-          OUTPUT=$(ssh -i ~/.ssh/id_rsa ec2-user@${{ env.PUBLIC_IP }} << 'EOF'
+          ssh -i ~/.ssh/id_rsa ec2-user@${{ env.PUBLIC_IP }} << 'EOF'
           unzip files.zip
           source environment-variable/environment.env
-          python3 /home/ec2-user/code-create-tables/code-create-tables.py 2>&1
+          python3 /home/ec2-user/code-create-tables/code-create-tables.py
           EOF
-          )
-          EXIT_CODE=$?
-
-          echo "Salida del script:"
-          echo "${OUTPUT}"
-
-          echo "Código de salida: ${EXIT_CODE}"
-
-          if [ ${EXIT_CODE} -ne 0 ]; then
-            echo "❌ Error en el script Python"
-            exit 1
-          else
-            echo "El script se ejecutó con éxito ✅"
-          fi
         continue-on-error: false
       
       - name: Delete files on EC2

@@ -1,6 +1,6 @@
 import boto3
 import os
-
+import datetime
 import psycopg2
 import json
 import re
@@ -9,62 +9,63 @@ import sys
 class Redshift:
     def __init__(self):
         self.client = boto3.client('redshift-data', region_name='us-east-1')
-
+        self.client_s3 = boto3.client('s3')
         self.path_file_process = "/redshift-table-process/"
-        self.path_file_variables = "/Users/sergiomoreno/programs/nubiral/claro-cenam/claro-cenam-redshift-tables/code-create-tables/environment-variable/"
-        self.path_file_variable = "/Users/sergiomoreno/programs/nubiral/claro-cenam/claro-cenam-redshift-tables/code-create-tables/environment-variable/environment.env"
+        self.path_file_variables = "/environment-variable/"
+        self.path_file_variable = "/environment-variable/environment.env"
         self.path = os.getcwd()
-        self.file = os.path.join(self.path, "log-create-table.txt")
+        self.file = "create-table-redshift-log.txt"
 
 
-    def execute_query(self, query, database, workgroup):
+    def execute_query(self, query, database, workgroup, bucket_name):
         try:
+            self.write_log(self.file, "execute_query", bucket_name)
             response = self.client.execute_statement(
                 Database=database,
                 Sql=query,
                 WorkgroupName=workgroup
             )
+            self.write_log(self.file, f"response: {response}, se ejecuta la query de creacion de tabla.", bucket_name)
             return response
         except Exception as e:
+            self.write_log(self.file, f"Ocurrió un error: {e}", bucket_name)
             return {"statusCode": 500, "error": str(e)}
 
 
 
     def create_table(self, table_creation_query):
-        redshift = Redshift()
-        response = redshift.execute_query(table_creation_query)
-        return response
+        try:
+            self.write_log(self.file, "create_table", bucket_name)
+            redshift = Redshift()
+            response = redshift.execute_query(table_creation_query, dbname, workgroup_name, bucket_name)
+            self.write_log(self.file, f"response: {response}, se crea la tabla satisfactoriamente", bucket_name)
+            return response
+        except Exception as e:
+            self.write_log(self.file, f"Ocurrió un error: {e}", bucket_name)
+            return {"statusCode": 500, "error": str(e)}
 
 
-    def load_table(self, create_table_redshift, connection):        
-        connection_cursor =connection.cursor()
-        copy_sql = f"""
-            {create_table_redshift}
-        """
-        print("imprime copy sql", copy_sql)
-        connection_cursor.execute(copy_sql)
-        connection.commit()
-        connection_cursor.close()
-        connection.close()
 
-    
-    def read_file_env(self, path_file):
-        self.write_log(self.file, "read_file_env")
-        file = open(path_file, 'r')
-        env_data = {}
-        for line in file:
-            if not line.strip() or line.startswith("#"):
-                continue
-            key, value = line.split("=", 1)
-            key = key.strip()
-            value = value.strip().strip("'").strip('"')
-            env_data[key] = value
-        self.write_log(self.file, f"env_data: {env_data}")
-        return env_data
+    def load_table(self, create_table_redshift, connection, bucket_name):
+        try:
+            self.write_log(self.file, "load_table", bucket_name)        
+            connection_cursor =connection.cursor()
+            copy_sql = f"""
+                {create_table_redshift}
+            """
+            self.write_log(self.file, f"copy_sql: {copy_sql}", bucket_name)
+            connection_cursor.execute(copy_sql)
+            connection.commit()
+            connection_cursor.close()
+            connection.close()
+            self.write_log(self.file, "Carga de tabla exitosa", bucket_name)
+        except Exception as e:
+            self.write_log(self.file, f"Ocurrió un error: {e}", bucket_name)
+            print(f"Ocurrió un error: {e}")
 
 
-    def parse_env_file(self, file_path, connection, workgroup_name, dbname):
-        self.write_log(self.file, "parse_env_file")
+    def parse_env_file(self, file_path, connection, workgroup_name, dbname, bucket_name):
+        self.write_log(self.file, "parse_env_file", bucket_name)
         for files in file_path:
             self.write_log(self.file, f"Procesando archivo: {files}")
             data = {}
@@ -112,67 +113,73 @@ class Redshift:
 
 
             if create_table_stmt:
-                self.write_log(self.file, "Se encontró la sentencia para crear la tabla")
-                self.write_log(self.file, f"create_table_stmt: {create_table_stmt}")
-                self.create_table(create_table_stmt, workgroup_name, dbname)
+                self.write_log(self.file, "Se encontró la sentencia para crear la tabla", bucket_name)
+                self.write_log(self.file, f"create_table_stmt: {create_table_stmt}", bucket_name)
+                self.create_table(create_table_stmt, workgroup_name, dbname, bucket_name)
             else:
-                self.write_log(self.file, "No se encontró la sentencia para crear la tabla")
+                self.write_log(self.file, "No se encontró la sentencia para crear la tabla", bucket_name)
             
             
             if load_table_stmt:
-                self.write_log(self.file, "Se encontró la sentencia para cargar la tabla")
-                self.write_log(self.file, f"load_table_stmt: {load_table_stmt}")
-                self.load_table(load_table_stmt, connection)
+                self.write_log(self.file, "Se encontró la sentencia para cargar la tabla", bucket_name)
+                self.write_log(self.file, f"load_table_stmt: {load_table_stmt}", bucket_name)
+                self.load_table(load_table_stmt, connection, bucket_name)
             else:
-                self.write_log(self.file, "No se encontró la sentencia para cargar la tabla")   
+                self.write_log(self.file, "No se encontró la sentencia para cargar la tabla", bucket_name)   
 
 
-    def write_log(self, file, text):
+    def write_log(self, file, text, bucket_name):
         try:
-            with open(file, "a", encoding="utf-8") as f:
-                f.write(text + "\n")
+            try:
+                response = self.client_s3.get_object(Bucket=bucket_name, Key=file)
+                existing_content = response['Body'].read().decode('utf-8')
+            except self.client_s3.exceptions.NoSuchKey:
+                existing_content = ""
+            
+            # Agregar el nuevo log con la fecha y hora
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            new_content = f"{existing_content} \n {timestamp} - {text}\n"
+            
+            # Subir el archivo actualizado a self.client_s3
+            self.client_s3.put_object(Bucket=bucket_name, Key=file, Body=new_content)
+            print("Log escrito en S3 correctamente.")
         except Exception as e:
             print(f"Ocurrió un error: {e}")
 
 
 if __name__ == "__main__":
-    with open('log-create-table.txt', 'w') as fp:
-        pass
     try:
         redshift = Redshift()
-        file_env = os.listdir(redshift.path_file_variables)
-        if file_env:
-            environmnet = redshift.read_file_env(redshift.path_file_variable)
-            print(environmnet)
-            dbname=environmnet['REDSHIFT_DB']
-            user=environmnet['REDSHIFT_USER']
-            password=environmnet['REDSHIFT_PASSWORD']
-            host=environmnet['REDSHIFT_HOST']
-            port=environmnet['REDSHIFT_PORT']
-            workgroup_name=environmnet['WORKGROUP_NAME']
+       
+        bucket_name=os.getenv('BUCKET_NAME')
+        dbname=os.getenv('REDSHIFT_DB')
+        user=os.getenv('REDSHIFT_USER')
+        password=os.getenv('REDSHIFT_PASSWORD')
+        host=os.getenv('REDSHIFT_HOST')
+        port=os.getenv('REDSHIFT_PORT')
+        workgroup_name=os.getenv('WORKGROUP_NAME')
 
-            connection = psycopg2.connect(
-                dbname=dbname,
-                user=user,
-                password=password,
-                host=host,
-                port=port
-            )
-            redshift.write_log(redshift.file, "Conexión establecida con la base de datos")
-        else:
-            redshift.write_log(redshift.file, "No hay archivos en el directorio")
-            sys.exit("No hay archivos en el directorio")
+        connection = psycopg2.connect(
+            dbname=dbname,
+            user=user,
+            password=password,
+            host=host,
+            port=port
+        )
+
+        redshift.write_log(redshift.file, "Conexión establecida con la base de datos", bucket_name)
+
     except Exception as e:
-        redshift.write_log(redshift.file, f"Ocurrió un error: {e}")
+        redshift.write_log(redshift.file, f"Ocurrió un error: {e}", bucket_name)
         print(f"Ocurrió un error: {e}")
         sys.exit("No se pudo establecer conexión con la base de datos")
 
     files = os.listdir(redshift.path_file_process)
     if files:
-        redshift.write_log(redshift.file, f"Se encontraron archivos en el directorio")
-        redshift.parse_env_file(files, connection, workgroup_name, dbname)  
+        redshift.write_log(redshift.file, f"Se encontraron archivos en el directorio", bucket_name)
+        redshift.parse_env_file(files, connection, workgroup_name, dbname, bucket_name)  
     else:
-        redshift.write_log(redshift.file, "No hay archivos en el directorio")
+        redshift.write_log(redshift.file, "No hay archivos en el directorio", bucket_name)
         sys.exit("No hay archivos en el directorio")
         print("********************************")
         print("No hay archivos en el directorio")

@@ -10,9 +10,7 @@ class Redshift:
     def __init__(self):
         self.client = boto3.client('redshift-data', region_name='us-east-1')
         self.client_s3 = boto3.client('s3')
-        self.path_file_process = "/redshift-table-process/"
-        self.path_file_variables = "/environment-variable/"
-        self.path_file_variable = "/environment-variable/environment.env"
+        self.path_file_process = "redshift-table-process/"
         self.path = os.getcwd()
         self.file = "create-table-redshift-log.txt"
 
@@ -38,8 +36,12 @@ class Redshift:
             self.write_log(self.file, "create_table", bucket_name)
             redshift = Redshift()
             response = redshift.execute_query(table_creation_query, dbname, workgroup_name, bucket_name)
-            self.write_log(self.file, f"response: {response}, se crea la tabla satisfactoriamente", bucket_name)
-            return response
+            if response['statusCode'] != 500:
+                self.write_log(self.file, f"response: {response}, se crea la tabla satisfactoriamente", bucket_name)
+                return response
+            else: 
+                self.write_log(self.file, f"response: {response}, falla en la creacion de la tabla", bucket_name)
+                return {"statusCode": 500, "error": str(response)}
         except Exception as e:
             self.write_log(self.file, f"Ocurrió un error: {e}", bucket_name)
             return {"statusCode": 500, "error": str(e)}
@@ -71,7 +73,7 @@ class Redshift:
             data = {}
             current_key = None
             
-            with open(files, 'r', encoding='utf-8') as file:
+            with open("redshift-table-process/"+files, 'r', encoding='utf-8') as file:
                 for line in file:
                     line = line.strip()
                     
@@ -102,7 +104,6 @@ class Redshift:
             # Generate CREATE TABLE statement
             create_table_stmt = f"CREATE TABLE IF NOT EXISTS {table_name} (\n"
             for col in columns:
-                print(col.get("type_column"))
                 col_name = col.get("name_column")
                 col_type = col.get("type_column")
                 create_table_stmt += f"    {col_name} {col_type},\n"
@@ -115,7 +116,9 @@ class Redshift:
             if create_table_stmt:
                 self.write_log(self.file, "Se encontró la sentencia para crear la tabla", bucket_name)
                 self.write_log(self.file, f"create_table_stmt: {create_table_stmt}", bucket_name)
-                self.create_table(create_table_stmt, workgroup_name, dbname, bucket_name)
+                response = self.create_table(create_table_stmt, workgroup_name, dbname, bucket_name)
+                if response['statusCode'] == 500:
+                    sys.exit("No se pudo crear la tabla")
             else:
                 self.write_log(self.file, "No se encontró la sentencia para crear la tabla", bucket_name)
             
@@ -149,8 +152,10 @@ class Redshift:
 
 if __name__ == "__main__":
     try:
+        print("********************************")
+        print("se inicia proceso de creación de tablas en redshift")
+        print("********************************")
         redshift = Redshift()
-       
         bucket_name=os.getenv('BUCKET_NAME')
         dbname=os.getenv('REDSHIFT_DB')
         user=os.getenv('REDSHIFT_USER')
@@ -159,6 +164,8 @@ if __name__ == "__main__":
         port=os.getenv('REDSHIFT_PORT')
         workgroup_name=os.getenv('WORKGROUP_NAME')
 
+        redshift.write_log(redshift.file, "Inicio del proceso de creación de tablas en redshift", bucket_name)
+        
         connection = psycopg2.connect(
             dbname=dbname,
             user=user,

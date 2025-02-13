@@ -30,11 +30,11 @@ env:
   AWS_ROLE                : ${{ secrets.AWS_ROLE }}
   INSTANCE_ID             : ${{ vars.INSTANCE_ID }}
   EC2_SSH_KEY             : ${{ secrets.EC2_SSH_KEY }}
-  DBNAME                  : ${{ secrets.REDSHIFT_DB }}
-  USER                    : ${{ secrets.REDSHIFT_USER }}
-  PASSWORD                : ${{ secrets.REDSHIFT_PASSWORD }}
-  HOST                    : ${{ secrets.REDSHIFT_HOST }}
-  PORT                    : ${{ secrets.REDSHIFT_PORT }}
+  REDSHIFT_DB             : ${{ secrets.REDSHIFT_DB }}
+  REDSHIFT_PASSWORD       : ${{ secrets.REDSHIFT_PASSWORD }}
+  REDSHIFT_HOST           : ${{ secrets.REDSHIFT_HOST }}
+  REDSHIFT_USER           : ${{ secrets.REDSHIFT_USER }}
+  REDSHIFT_PORT           : ${{ secrets.REDSHIFT_PORT }}
   WORKGROUP_NAME          : ${{ secrets.WORKGROUP_NAME }}
   BUCKET_NAME             : ${{ vars.BUCKET_NAME }}
 

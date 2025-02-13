@@ -134,7 +134,15 @@ jobs:
 
       - name: Validate script on EC2
         id: validate-script
-        run: ssh -i ~/.ssh/id_rsa ec2-user@${{ env.PUBLIC_IP }} 'if [[ -e /home/ec2-user/files.zip ]]; then echo -e "SCRIPT EXISTS" else exit 1'
+        run: | 
+          ssh -i ~/.ssh/id_rsa ec2-user@${{ env.PUBLIC_IP }} << 'EOF'
+          if [[ -e /home/ec2-user/files.zip ]]; 
+          then 
+            echo -e "SCRIPT EXISTS" 
+          else 
+            exit 1
+          fi
+          EOF
         continue-on-error: false
       
       - name: Decompress and Execute Script

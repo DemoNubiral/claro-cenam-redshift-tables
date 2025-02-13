@@ -80,14 +80,14 @@ jobs:
       - name: Start Instance
         id: start-instance
         run: |
-          echo -e "${{INSTANCE_ID}}...\n"
+          echo -e "${{env.INSTANCE_ID}}...\n"
           echo "Checking instance state"
-          INSTANCE_STATE=$(aws ec2 describe-instances --instance-ids ${{INSTANCE_ID}} --query 'Reservations[*].Instances[*].State.Name' --output text --region ${{AWS_REGION}})
+          INSTANCE_STATE=$(aws ec2 describe-instances --instance-ids ${{env.INSTANCE_ID}} --query 'Reservations[*].Instances[*].State.Name' --output text --region ${{ env.AWS_REGION }})
           if [ "$INSTANCE_STATE" = "stopped" ]; then
-            aws ec2 start-instances --instance-ids ${{INSTANCE_ID}} --region ${{AWS_REGION}}
-            echo -e "\n----- Start command sended to ${{INSTANCE_ID}} -----"
+            aws ec2 start-instances --instance-ids ${{env.INSTANCE_ID}} --region ${{ env.AWS_REGION }}
+            echo -e "\n----- Start command sended to ${{env.INSTANCE_ID}} -----"
             echo "Waiting for starting instance"
-            while INSTANCE_STATE=$(aws ec2 describe-instances --instance-ids ${{INSTANCE_ID}} --query 'Reservations[*].Instances[*].State.Name' --output text --region ${{AWS_REGION}}); test "$INSTANCE_STATE" = "pending"; do sleep 2; echo -n '.'; done
+            while INSTANCE_STATE=$(aws ec2 describe-instances --instance-ids ${{env.INSTANCE_ID}} --query 'Reservations[*].Instances[*].State.Name' --output text --region ${{ env.AWS_REGION }}); test "$INSTANCE_STATE" = "pending"; do sleep 2; echo -n '.'; done
           else
             echo -e "\n-----*******************************-----"
             echo -e "-----EC2 Instance is already started-----"
@@ -95,9 +95,8 @@ jobs:
             echo -e "-----*******************************-----\n"
           fi
           echo -e "GETTING PUBLIC IP..."
-          PUBLIC_IP=$(aws ec2 describe-instances --instance-ids ${{INSTANCE_ID}} --query "Reservations[*].Instances[*].PublicIpAddress" --output text --region ${{AWS_REGION}})
+          PUBLIC_IP=$(aws ec2 describe-instances --instance-ids ${{env.INSTANCE_ID}} --query "Reservations[*].Instances[*].PublicIpAddress" --output text --region ${{ env.AWS_REGION }})
           echo -e "${{INSTANCE_STATE}}...\n"
-          echo "INSTANCE_STATE=$INSTANCE_STATE" >> $GITHUB_ENV
           echo "PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_ENV
   
       - name: Setup SSH Key
@@ -106,7 +105,7 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{PUBLIC_IP}} >> ~/.ssh/known_hosts
+          ssh-keyscan -H ${{ env.PUBLIC_IP }} >> ~/.ssh/known_hosts
       
       - name: Create environments
         id: create-environment
@@ -130,18 +129,18 @@ jobs:
   
       - name: Upload Script to EC2
         id: upload-script
-        run: scp -i ~/.ssh/id_rsa files.zip ec2-user@${{PUBLIC_IP}}:/home/ec2-user/
+        run: scp -i ~/.ssh/id_rsa files.zip ec2-user@${{ env.PUBLIC_IP }}:/home/ec2-user/
         continue-on-error: false
 
       - name: Validate script on EC2
         id: validate-script
-        run: ssh -i ~/.ssh/id_rsa ec2-user@${{PUBLIC_IP}} 'if [[ -e /home/ec2-user/files.zip ]]; then echo -e "SCRIPT EXISTS" else exit 1'
+        run: ssh -i ~/.ssh/id_rsa ec2-user@${{ env.PUBLIC_IP }} 'if [[ -e /home/ec2-user/files.zip ]]; then echo -e "SCRIPT EXISTS" else exit 1'
         continue-on-error: false
       
       - name: Decompress and Execute Script
         id: descomprimir-y-ejecutar-script
         run: |
-          OUTPUT=$(ssh -i ~/.ssh/id_rsa ec2-user@${{PUBLIC_IP}} << 'EOF'
+          OUTPUT=$(ssh -i ~/.ssh/id_rsa ec2-user@${{ env.PUBLIC_IP }} << 'EOF'
           unzip files.zip
           source environment-variable/environment.env
           python3 /home/ec2-user/code-create-tables/code-create-tables.py 2>&1
@@ -164,23 +163,23 @@ jobs:
       
       - name: Delete files on EC2
         id: delete-files
-        run: ssh -i ~/.ssh/id_rsa ec2-user@${{PUBLIC_IP}} 'sudo rm -fr *'
+        run: ssh -i ~/.ssh/id_rsa ec2-user@${{ env.PUBLIC_IP }} 'sudo rm -fr *'
         continue-on-error: false
       
       - name: Stop Instance
         id: stop-instance
         run: |
-          echo -e "${{INSTANCE_ID}}...\n"
-          aws ec2 stop-instances --instance-ids ${{INSTANCE_ID}} --region ${{AWS_REGION}}
+          echo -e "${{env.INSTANCE_ID}}...\n"
+          aws ec2 stop-instances --instance-ids ${{env.INSTANCE_ID}} --region ${{AWS_REGION}}
 
-          echo -e "\n----- Stop command sended to ${{INSTANCE_ID}} -----"
+          echo -e "\n----- Stop command sended to ${{env.INSTANCE_ID}} -----"
           
           echo "Waiting for stopping instance"
-          while INSTANCE_STATE=$(aws ec2 describe-instances --instance-ids ${{INSTANCE_ID}} --query 'Reservations[*].Instances[*].State.Name' --output text --region ${{AWS_REGION}}); test "${INSTANCE_STATE}" = "running"; do sleep 2; echo -n '.'; done
-          echo -e "${INSTANCE_STATE}...\n"
+          while INSTANCE_STATE_STOP=$(aws ec2 describe-instances --instance-ids ${{env.INSTANCE_ID}} --query 'Reservations[*].Instances[*].State.Name' --output text --region ${{env.AWS_REGION}}); test "${INSTANCE_STATE_STOP}" = "running"; do sleep 2; echo -n '.'; done
+          echo -e "${INSTANCE_STATE_STOP}...\n"
 
           counter_var=0
-          while INSTANCE_STATE=$(aws ec2 describe-instances --instance-ids ${{INSTANCE_ID}} --query 'Reservations[*].Instances[*].State.Name' --output text --region ${{AWS_REGION}}); test "${INSTANCE_STATE}" = "stopping"; do 
+          while INSTANCE_STATE_STOP=$(aws ec2 describe-instances --instance-ids ${{env.INSTANCE_ID}} --query 'Reservations[*].Instances[*].State.Name' --output text --region ${{env.AWS_REGION}}); test "${INSTANCE_STATE_STOP}" = "stopping"; do 
             sleep 2
             echo -n '.'
             ((counter_var=counter_var+1)) 
@@ -192,4 +191,4 @@ jobs:
               break
             fi
           done
-          echo -e "${INSTANCE_STATE}...\n"
+          echo -e "${INSTANCE_STATE_STOP}...\n"

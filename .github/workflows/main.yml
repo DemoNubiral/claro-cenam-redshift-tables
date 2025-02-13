@@ -115,13 +115,13 @@ jobs:
           cd environment-variable
           ENV_FILE="environment.env"   
           cat <<EOL > $ENV_FILE
-          BUCKET_NAME=${{ vars.BUCKET_NAME }}
-          REDSHIFT_DB=${{ env.REDSHIFT_DB }}
-          REDSHIFT_USER=${{ env.REDSHIFT_USER }}
-          REDSHIFT_PASSWORD=${{ env.REDSHIFT_PASSWORD }}
-          REDSHIFT_HOST=${{ env.REDSHIFT_HOST }}
-          REDSHIFT_PORT=${{ env.REDSHIFT_PORT }}
-          WORKGROUP_NAME=${{ env.WORKGROUP_NAME }}
+          export BUCKET_NAME=${{ vars.BUCKET_NAME }}
+          export REDSHIFT_DB=${{ env.REDSHIFT_DB }}
+          export REDSHIFT_USER=${{ env.REDSHIFT_USER }}
+          export REDSHIFT_PASSWORD=${{ env.REDSHIFT_PASSWORD }}
+          export REDSHIFT_HOST=${{ env.REDSHIFT_HOST }}
+          export REDSHIFT_PORT=${{ env.REDSHIFT_PORT }}
+          export WORKGROUP_NAME=${{ env.WORKGROUP_NAME }}
           EOL
 
       - name: Compress files
@@ -143,6 +143,7 @@ jobs:
         run: |
           OUTPUT=$(ssh -i ~/.ssh/id_rsa ec2-user@${{PUBLIC_IP}} << 'EOF'
           unzip files.zip
+          source environment-variable/environment.env
           python3 /home/ec2-user/code-create-tables/code-create-tables.py 2>&1
           EOF
           )
